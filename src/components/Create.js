@@ -1,8 +1,10 @@
-import React, { useEffect, useState } from "react";
-import ipfsClient from "ipfs-http-client";
+import React, { useEffect, useState, useCallback } from "react";
 import AlertModal from "./modals/AlertModal";
 import SuccessModal from "./modals/SuccessModal";
+import { ethers, BigNumber, utils, Contract } from "ethers";
+import { abis, addresses } from "../web3/config";
 import history from "./history";
+import useWeb3Modal from "../hooks/useWeb3Modal";
 import {
   Row,
   Col,
@@ -16,21 +18,7 @@ import {
 } from "react-bootstrap";
 
 export default function Create() {
-  const [deploying, setDeploying] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [addCouponState, setAddCouponState] = useState({
-    couponTokenName: "",
-    couponTokenSymbol: "",
-    ticketPrice: "",
-    distInterval: "",
-    ticketBuyDuration: "",
-    ticketBuyToken: "0x2B8fF854c5e16cF35B9A792390Cc3a2a60Ec9ba2",
-    image: null,
-  });
-
-  const [showMetamaskError, setShowMetamaskError] = useState(
-    false
-  );
   const [errorModal, setErrorModal] = useState({
     msg: "",
     open: false
@@ -39,332 +27,263 @@ export default function Create() {
     msg: "",
     open: false
   });
-  const [tokens] = useState([
-    { name: "DAI", address: "0xff795577d9ac8bd7d90ee22b6c1703490b6512fd" }
-  ]);
 
-  const ipfs = ipfsClient({
-    host: 'ipfs.infura.io',
-    port: 5001,
-    protocol: 'https',
+  const [managerFactory, setManagerFactory] = useState(undefined);
+  const [addTokenState, setAddTokenState] = useState({
+    tokenName: "",
+    tokenSymbol: "",
+    amtTotalMint: "",
+    minReqAmt: "",
+    price: "",
+    payback: ""
+  });
+  const [provider] = useWeb3Modal();
+  const [value, setValue] = useState("");
+
+  const getManagerFactory = useCallback(async () => {
+    const timerId = setTimeout(async () => {
+      if (typeof(provider) !== "undefined") {
+        const signer = provider.getSigner();
+        const managerFactory = new Contract(
+          addresses.MANAGER_FACTORY,
+          abis.MANAGER_FACTORY_ABI,
+          signer
+        );
+        setManagerFactory(managerFactory);
+        clearTimeout(timerId);
+      }
+    }, 500);
+  }, [provider]);
+
+  useEffect(() => {
+    if (!managerFactory) {
+      getManagerFactory();
+    }
+  }, [managerFactory, getManagerFactory]);
+
+  const getValue = useCallback(() => {
+    setTimeout(() => {
+        if (addTokenState.amtTotalMint !== "" && addTokenState.price !== "") {
+            const value = utils.parseEther(addTokenState.amtTotalMint).mul(utils.parseEther(addTokenState.price)).div("1000000000000000000");
+            console.log(utils.formatEther(value));
+            setValue(utils.formatEther(value));
+        }
+    }, 500);
   });
 
-  const handleCreateCoupon = async () => {
-    let tokenBaseUrl = "";
-    if (addCouponState.image) {
-      setDeploying(true);
-      const ipfsHash = await deployImage();
-      tokenBaseUrl = `https://ipfs.io/ipfs/${ipfsHash}`;
-      setDeploying(false);
+  useEffect(() => {
+    if (value.length <= 18) {
+      getValue();
     }
+  }, [getValue, value]);
 
-    console.log(addCouponState)
 
-    window.couponFactory.methods
-      .addCoupon(
-        addCouponState.couponTokenName,
-        addCouponState.couponTokenSymbol,
-        addCouponState.ticketBuyToken,
-        addCouponState.ticketPrice,
-        addCouponState.distInterval,
-        addCouponState.ticketBuyDuration,
-        tokenBaseUrl,
-      )
-      .send()
-      .on('transactionHash', () => {
-        setProcessing(true);
-      })
-      .on('receipt', (_) => {
+  const handleCreateToken = async () => {
+    setProcessing(true);
+    console.log('f', addTokenState)
+
+    console.log('s', provider)
+    
+    try {
+        const result = await managerFactory.callStatic.newManager(
+            addTokenState.tokenName,
+            addTokenState.tokenSymbol,
+            utils.parseEther(addTokenState.amtTotalMint),
+            utils.parseEther(addTokenState.minReqAmt),
+            utils.parseEther(addTokenState.minReqAmt),
+            {
+              value: utils.parseEther(addTokenState.amtTotalMint).mul(utils.parseEther(addTokenState.price)).div("1000000000000000000"),
+              gasLimit: BigNumber.from("5000000"),
+            }
+        );
+        await managerFactory.newManager(
+            addTokenState.tokenName,
+            addTokenState.tokenSymbol,
+            utils.parseEther(addTokenState.amtTotalMint),
+            utils.parseEther(addTokenState.minReqAmt),
+            utils.parseEther(addTokenState.minReqAmt),
+            {
+                value: utils.parseEther(addTokenState.amtTotalMint).mul(utils.parseEther(addTokenState.price)).div("1000000000000000000"),
+                gasLimit: BigNumber.from("5000000"),
+            }
+        );
+        console.log('r', result)
+        
         setProcessing(false);
         setSuccessModal({
           open: true,
-          msg: "Coupon successfully created !!",
+          msg: "Token successfully created !!",
         });
+    } catch (e) {
+      console.error(e)
+      setProcessing(false);
+      setErrorModal({
+        open: true,
+        msg: e.message
       })
-      .catch((error) => {
-        setProcessing(false);
-        setErrorModal({
-          open: true,
-          msg: error.message,
-        });
-        console.log(error.message)
-      });
-  };
-
-  const deployImage = () => {
-    return new Promise((resolve) => {
-      const reader = new window.FileReader()
-      reader.readAsArrayBuffer(addCouponState.image);
-
-      reader.onloadend = async () => {
-        const files = [{
-          path: addCouponState.image.name,
-          content: reader.result
-        }];
-
-        for await (const result of ipfs.addAll(files)) {
-          resolve(result.cid.string);
-        }
-      }
-    });
-  }
-
-  useEffect(() => {
-    if (typeof window.ethereum === 'undefined' ||
-        !window.ethereum.selectedAddress
-    ) {
-      setShowMetamaskError(true);
     }
-  }, []);
+    
+  }
 
   return (
     <div style={{ marginTop: "5%" }}>
-      {showMetamaskError ?
-        <AlertModal
-          open={showMetamaskError}
-          toggle={() => {
-            setShowMetamaskError(false);
-            history.push('/');
-          }}
-        >
-          <div>
-            {typeof window.ethereum === 'undefined' ?
-              <div>
-                You should install Metamask first.                                
+      <CardDeck>
+        <Card className="hidden-card"></Card>
+
+        <Card className="mx-auto create-card">
+          <Card.Header>
+            <u>Create Token</u>
+          </Card.Header>
+
+          <Card.Body>
+            <Row style={{ marginTop: "10px" }}>
+              <Col className="text-header">
+                Token Name:
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <Form.Control
+                  className="mb-4"
+                  type="text"
+                  placeholder="Token Name"
+                  onChange={(e) => setAddTokenState({
+                    ...addTokenState,
+                    tokenName: e.target.value
+                  })}
+                  style={{ width: "80%" }}
+                  value={addTokenState.tokenName}
+                  required
+                />
+              </Col>
+            </Row>
+
+            <Row>
+              <Col className="text-header">
+                Token Symbol:
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <Form.Control
+                  className="mb-4"
+                  type="text"
+                  placeholder="Token Symbol"
+                  onChange={(e) => setAddTokenState({
+                    ...addTokenState,
+                    tokenSymbol: e.target.value
+                  })}
+                  style={{ width: "80%" }}
+                  value={addTokenState.tokenSymbol}
+                  required
+                />
+              </Col>
+            </Row>
+
+            <Row>
+              <Col className="text-header">
+                Total amount for mint
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <Form.Control
+                  className="mb-4"
+                  type="number"
+                  step="0"
+                  placeholder="Total amount for mint:"
+                  onChange={(e) => setAddTokenState({
+                    ...addTokenState,
+                    amtTotalMint: e.target.value
+                  })}
+                  style={{ width: "80%" }}
+                  value={addTokenState.amtTotalMint}
+                  required
+                />
+              </Col>
+            </Row>
+
+            <Row>
+              <Col className="text-header">
+                Initial Price
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <Form.Control
+                  className="mb-4"
+                  placeholder="Initial Price (ETH):"
+                  onChange={(e) => setAddTokenState({
+                    ...addTokenState,
+                    price: e.target.value
+                  })}
+                  style={{ width: "80%" }}
+                  value={addTokenState.price}
+                  required
+                />
+              </Col>
+            </Row>
+
+            <Row>
+              <Col className="text-header">
+                Minimum amount for request:
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <Form.Control
+                  className="mb-4"
+                  type="number"
+                  step="0"
+                  placeholder="Minimum amount for request:"
+                  onChange={(e) => setAddTokenState({
+                    ...addTokenState,
+                    minReqAmt: e.target.value
+                  })}
+                  style={{ width: "80%" }}
+                  value={addTokenState.minReqAmt}
+                  required
+                />
+              </Col>
+            </Row>
+            <Row>
+              <Col className="text-header">
+                Total estimation fee
+              </Col>
+              <Col style={{ paddingLeft: "0px" }}>
+                <div className="detail final">{value} ETH</div>
+              </Col>
+            </Row>
+        </Card.Body>
+
+        <Card.Footer className="text-center">
+          <Button
+            onClick={handleCreateToken}
+            variant="outline-success"
+          >
+            {
+              processing ?
+              <div className="d-flex align-items-center">
+                Processing
+                <span className="loading ml-2"></span>
               </div>
               :
-              <div>
-                Please connect to Metamask.
-              </div>
+              <div>Submit</div>
             }
-          </div>
-        </AlertModal>
-      :
-        <CardDeck>
-          <Card className="hidden-card"></Card>
+          </Button>
+        </Card.Footer>
+      </Card>
 
-          <Card className="mx-auto create-card">
-            <Card.Header>
-              <u>Create Distribution Coupon</u>
-            </Card.Header>
+      <Card className="hidden-card"></Card>
+    </CardDeck>
+    <AlertModal
+      open={errorModal.open}
+      toggle={() => setErrorModal({
+        ...errorModal, open: false
+      })}
+    >
+      {errorModal.msg}
+    </AlertModal>
 
-            <Card.Body>
-              <Row style={{ marginTop: "10px" }}>
-                <Col className="text-header">
-                  Coupon Token Name:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="text"
-                    placeholder="NFT Token Name"
-                    onChange={(e) => setAddCouponState({
-                        ...addCouponState,
-                        couponTokenName: e.target.value
-                    })}
-                    style={{ width: "80%" }}
-                    value={addCouponState.couponTokenName}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row>
-                <Col className="text-header">
-                  Coupon Token Symbol:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="text"
-                    placeholder="NFT Token Symbol"
-                    onChange={(e) => setAddCouponState({
-                        ...addCouponState,
-                        couponTokenSymbol: e.target.value
-                    })}
-                    style={{ width: "80%" }}
-                    value={addCouponState.couponTokenSymbol}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row>
-                <Col className="text-header">
-                  NFT Token Image:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="file"
-                    onChange={(event) => setAddCouponState({
-                      ...addCouponState,
-                      image: event.target.files[0]
-                    })}
-                    style={{ width: "80%" }}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row>
-                <Col className="text-header">
-                  Ticket Price:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="number"
-                    step="0"
-                    placeholder="Price of the ticket"
-                    onChange={(e) => setAddCouponState({
-                      ...addCouponState,
-                      ticketPrice: e.target.value
-                    })}
-                    style={{ width: "80%" }}
-                    value={addCouponState.ticketPrice}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row>
-                <Col className="text-header">
-                  Distribution Interval:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="number"
-                    step="0"
-                    placeholder="In minutes (Eg. 15)"
-                    onChange={(e) => setAddCouponState({
-                      ...addCouponState,
-                      distInterval: e.target.value
-                    })}
-                    style={{ width: "80%" }}
-                    value={addCouponState.distInterval}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row>
-                <Col className="text-header">
-                  Duration for buy:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <Form.Control
-                    className="mb-4"
-                    type="number"
-                    step="0"
-                    placeholder="In minutes (Eg. 30)"
-                    onChange={(e) => setAddCouponState({
-                      ...addCouponState,
-                      ticketBuyDuration: e.target.value
-                    })}
-                    style={{ width: "80%" }}
-                    value={addCouponState.ticketBuyDuration}
-                    required
-                  />
-                </Col>
-              </Row>
-
-              <Row style={{ marginBottom: "30px" }}>
-                <Col className="text-header">
-                  Token For Buy:
-                </Col>
-                <Col style={{ paddingLeft: "0px" }}>
-                  <DropdownButton
-                    style={{
-                      position: "absolute",
-                    }}
-                    title={tokens.map((element) => (
-                      addCouponState.ticketBuyToken === element.address ?
-                        element.name
-                        : null
-                    ))}
-                    variant="outline-info"
-                    onSelect={(event) => setAddCouponState({
-                      ...addCouponState,
-                      ticketBuyToken: event
-                    })}
-                  >
-                    {tokens.map((element, key) => (
-                      <Dropdown.Item
-                        key={key}
-                        eventKey={element.address}
-                      >
-                        {element.name}
-                      </Dropdown.Item>
-                    ))}
-                  </DropdownButton>
-                </Col>
-              </Row>              
-
-              {addCouponState.image ?
-                <Row>
-                  <Col>
-                    <Image
-                      src={URL.createObjectURL(
-                        addCouponState.image
-                      )}
-                      width="150"
-                      height="150">
-                    </Image>
-                  </Col>
-                </Row>
-                : null
-              }
-            </Card.Body>
-
-            <Card.Footer className="text-center">
-              <Button
-                onClick={handleCreateCoupon}
-                variant="outline-success"
-              >
-                {deploying ?
-                  <div className="d-flex align-items-center">
-                    <span>Deploying to IPFS</span>
-                    
-                    <span className="loading ml-2"></span>
-                  </div>
-                  :
-                  (processing ?
-                    <div className="d-flex align-items-center">
-                      Processing
-                    <span className="loading ml-2"></span>
-                    </div>
-                  :
-                    <div>Submit</div>
-                  )
-                }
-              </Button>
-            </Card.Footer>
-          </Card>
-
-          <Card className="hidden-card"></Card>
-        </CardDeck>
-      }
-
-      <AlertModal
-        open={errorModal.open}
-        toggle={() => setErrorModal({
-          ...errorModal, open: false
-        })}
-      >
-        {errorModal.msg}
-      </AlertModal>
-
-      <SuccessModal
-        open={successModal.open}
-        toggle={() => setSuccessModal({
-            ...successModal, open: false
-        })}
-        onConfirm={() => history.push("/")}
-      >
-        {successModal.msg}
-      </SuccessModal>
+    <SuccessModal
+      open={successModal.open}
+      toggle={() => setSuccessModal({
+        ...successModal, open: false
+      })}
+      onConfirm={() => history.push("/")}
+    >
+      {successModal.msg}
+    </SuccessModal>  
     </div>
-  );
+  )
 }

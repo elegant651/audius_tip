@@ -1,5 +1,23 @@
 # Audius-Tip
 
+we implement a service that allows musicians and fans to communicate more closely. Musicians can issue their own tokens based on ERC-20 and fans can purchase them. Fans can purchase premium music or goods from musicians with this token, and the higher the scarcity, the higher the price of the token, due to the higher the musician's value or the small amount of tokens issued. This token provides Uniswap with liquidity to make it available for purchase and sale immediately.
+
+Through the Audius protocol, the tracking track and musician information were taken, and the Uniswap protocol was integrated into a smart contract. The contract was distributed on the Goeri TestNet using Hardhat. The UI was implemented as React and linked to the contract with the ether library.
+
+In addition to buy token, supportTip, finalize, and withdrawETH were implemented in TokenProvider.sol, but due to lack of time, they have not yet been implemented in ui. It is planning to link its contract on its profile page.
+
+Ethereum, Hardhat, Solidity, Audius, Uniswap, React, Ether
+
+## contracts
+- Goeri
+ManagerFactory : 0x0dc9bfB05997E89f06d6C680764f8c46A4EbA0dc
+
+UniV2Router: 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D
+UniV2Factory : 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f
+
+TokenFactory : 0xc6F2d5f7B8E35280B04d2eD74B7350C1D7806b07
+TokenProvider: 0x54A5a5D4fbb265ec6873cCB65f755c0a0C3883c7
+
 ## Available Scripts
 
 In the project directory, you can run:

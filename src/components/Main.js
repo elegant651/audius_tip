@@ -1,54 +1,30 @@
 import React, { useEffect, useState } from "react";
 import { Link } from 'react-router-dom';
-import { Card, CardDeck, Image } from "react-bootstrap";
-import { time } from "../web3/time";
+import { Row, Col, Card, CardDeck, Image } from "react-bootstrap";
 import Loading from "./Loading";
 
 export default function Main() {
-  const dai = "0xff795577d9ac8bd7d90ee22b6c1703490b6512fd"
-
-  const [listCoupons, setCoupons] = useState([]);
+  const [listTracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [noMetamsk, setNoMetamask] = useState(false);
+  const testMangerAccount = "0x95a1d47f0A839823cD807ea57fe7Ff84FE69e699";
 
-  const createSubArray = (coupons) => {
-    let chunks = [];
-
-    while (coupons.length > 4) {
-      chunks.push(coupons.splice(0, 4));
-    }
-
-    if (coupons.length > 0) {
-      chunks.push(coupons);
-    }
-
-    setCoupons(chunks);
-    setLoading(false);
+  const selectHost = async () => {
+    const sample = (arr) => arr[Math.floor(Math.random() * arr.length)]
+    const res = await fetch('https://api.audius.co')
+    const hosts = await res.json()
+    return sample(hosts.data)
   }
 
-  const getCoupons = async () => {
-    const allCoupons = [];
-    const couponCount = await window.couponFactory
-      .methods
-      .totalCoupons()
-      .call();
+  const fetchTracks = async () => {
+    const host = await selectHost()
+    const res = await fetch(`${host}/v1/tracks/trending?limit=1&timeRange=week?app_name=EXAMPLEAPP`)
+    const json = await res.json()
+    const allTracks = json.data.slice(0, 20);
 
-    if (Number(couponCount) === 0) {
-      setLoading(false);
-    }
-
-    for (let i = couponCount - 1; i >= 0; i--) {
-      const distCoupon = await window.couponFactory
-        .methods
-        .allCoupons(i)
-        .call();
-
-      allCoupons.push(distCoupon);
-
-      if (i === 0) {
-        createSubArray(allCoupons);
-      }
-    }
+    console.log('aa', allTracks)
+    setTracks(allTracks);
+    setLoading(false);
   }
 
   const isMetamaskInstalled = () => {
@@ -59,53 +35,39 @@ export default function Main() {
     if (!isMetamaskInstalled()) {
         setLoading(false);
         setNoMetamask(true);
-    } else if (listCoupons.length === 0) {
-        getCoupons();
+    } else if (listTracks.length === 0) {
+      fetchTracks();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function DisplayCard({ coupon, count }) {
+  function DisplayCard({ item, count }) {
     return (
       <Card key={count} className="display-coupon-card" >
         <Link
           key={count}
           style={{ textDecoration: "none", color: "black" }}
-          to={`/view/${coupon.couponAddress}/${coupon.couponTokenSymbol}/DAI`}
-        >
+          to={`/view/${testMangerAccount}`}
+        > 
           <Card.Header style={{ marginBottom: "5px" }}>
-            <Image src={coupon.baseTokenURI} width="50px"></Image>
-            <span> {coupon.couponTokenName} Coupon</span>
+            <Image src={item.artwork["150x150"]} width="150px"></Image>
+            <h5>{item.title}</h5>
           </Card.Header>
 
           <Card.Body>
             <div style={{ marginBottom: "10px" }}>
-              Ticket Price: {coupon.ticketPrice}
-              <span> {"DAI"}
-              </span>
+              <div><b>{item.genre}</b> {item.tags && item.tags.slice(0, 10)}</div>
             </div>
             <div style={{ marginBottom: "10px" }}>
-              Dist Interval: Every {coupon.distInterval} minutes
+              {item.description && item.description.slice(0, 70)}
             </div>
             <div style={{ marginBottom: "5px" }}>
-              {time.currentUnixTime() < (
-                Number(coupon.couponStartTimestamp) +
-                Number(coupon.ticketBuyDuration) * 60
-              ) ?
-                <div>
-                  <span>Close In: </span>
-                  <span className="info-message">
-                    {time.getRemaingTime(
-                      Number(coupon.couponStartTimestamp) +
-                      Number(coupon.ticketBuyDuration) * 60
-                    )}
-                  </span>
-                </div>
-                :
-                <span className="warning-message">
-                  Sold out
+              <div>
+                <h5 style={{ color: "blue" }}>{item.user.name}</h5>
+                <span className="info-message">
+
                 </span>
-              }
+              </div>
             </div>
           </Card.Body>
         </Link>
@@ -119,27 +81,12 @@ export default function Main() {
 
   return (
     <div>
+      <Row xs={2} md={4} className="g-4">
       {!noMetamsk ?
-        (listCoupons.map((element, key) => (
-          element.length === 4 ?
-            <CardDeck key={key} style={{ margin: "2%" }}>
-              {element.map((coupon, k) => (
-                <DisplayCard key={k} coupon={coupon} count={k} />
-              ))}
-            </CardDeck>
-            :
-            <CardDeck key={key} style={{ margin: "2%" }}>
-              {element.map((coupon, k) => (
-                <DisplayCard key={k} coupon={coupon} count={k} />
-              ))}
-
-              {[...Array(4 - element.length)].map((x, i) =>
-                <Card
-                  key={element.length + i + 1}
-                  className="hidden-card"
-                ></Card>
-              )}
-            </CardDeck>
+        (listTracks.map((element, key) => (
+            <Col key={key}>
+              <DisplayCard item={element} count={key} />
+            </Col>
           )))
         : <div
             className="alert-message"
@@ -148,6 +95,7 @@ export default function Main() {
             You don't have metamask. Please install first !!
         </div>
       }
+      </Row>
     </div >
   );
 

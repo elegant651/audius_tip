@@ -32,16 +32,16 @@ export default function Header() {
         <Navbar.Toggle aria-controls="responsive-navbar-nav" />
         <Nav className="mr-auto">
           <Nav.Link href="#create">Create</Nav.Link>
-          <Nav.Link href="#token-faucet">Faucet</Nav.Link>
+          {/* <Nav.Link href="#token-faucet">Faucet</Nav.Link> */}
         </Nav>
         <Nav>
-          {window.userAddress ?
+          {/* {window.userAddress ?
             <div>Address : {window.userAddress}</div> :
             <Button
               onClick={handleConnectMetamask}
               >Connect Metamask
             </Button>
-          }
+          } */}
         </Nav>
       </Navbar>
 

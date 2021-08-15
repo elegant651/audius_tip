@@ -1,9 +1,17 @@
-// import * as couponFactory from '../abis/couponFactory.json';
-// import * as faucet from '../abis/faucet.json';
+import erc20 from "../abis/erc20.json";
+import tokenprovider from "../abis/tokenprovider.json";
+import managerFactory from "../abis/manager-factory.json";
+import uniSwap from "../abis/IUniswapV2Router02.json";
+import uniswapFactory from "../abis/uniswap-factory.json";
 
-export const config = {
-  // couponFactoryAbi: couponFactory.default,
-  // couponFactoryAddress: "0xA976e2e7A5F64846cd1B29208E1c04491F27856B",
-  // tokenFaucetAbi: faucet.default,
-  // tokenFaucetAddress: "0xaDfd1D7dD1F383FBdC72805667552E61749824e3",
+export const addresses = {
+  MANAGER_FACTORY: "0x0dc9bfB05997E89f06d6C680764f8c46A4EbA0dc",
+}
+
+export const abis = {
+  ERC20: erc20,
+  MANAGER_ABI: tokenprovider,
+  MANAGER_FACTORY_ABI: managerFactory,
+  UNI_SWAP_ABI: uniSwap,
+  UNISWAP_FACTORY_ABI: uniswapFactory
 }

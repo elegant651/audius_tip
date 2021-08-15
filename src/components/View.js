@@ -1,48 +1,26 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import history from "./history";
 import Loading from "./Loading";
 import AlertModal from "./modals/AlertModal";
 import SuccessModal from "./modals/SuccessModal";
-import { precision } from "../web3/precision";
-import { time } from "../web3/time";
-import * as erc20Abi from "../abis/erc20Abi.json"
-import * as distCouponAbi from "../abis/distCoupon.json";
+import useWeb3Modal from "../hooks/useWeb3Modal";
+import { abis, addresses } from "../web3/config";
 import {
+  Form,
   Card,
   Row,
   Col,
   Button,
   CardDeck
 } from "react-bootstrap";
-import BuyTicket from "./view_coupon/BuyTicket";
-import DisplayTickets from "./view_coupon/DisplayTickets";
-import Claim from "./view_coupon/Claim";
+import { ethers, BigNumber, utils, Contract } from "ethers";
 
 export default function View() {
   let routes;
-  const DAI = "0xff795577d9ac8bd7d90ee22b6c1703490b6512fd";
-  const { couponAddress, nftToken, buyToken } = useParams();
+  const { profileAddr } = useParams();
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
-  let [erc20Instance, setErc20Instance] = useState();
-  let [contractInstance, setContractInstance] = useState();
-  const [state, setState] = useState({
-    totalTicket: 0,
-    ticketPrice: 0,
-    distInterval: 0,
-    distCount: 0,
-    couponStartTimestamp: 0,
-    ticketBuyEndTime: 0,
-    nextDistStartTime: 0,
-    nftBalance: 0,
-    tickets: [],
-    couponResult: 0,
-    tokenBaseURI: "",
-    isWinnerTicket: false,
-    couponWinnerAddr: "",
-    erc20Balance: 0,
-  });
   const [successModal, setSuccessModal] = useState({
     msg: "",
     open: false
@@ -51,394 +29,303 @@ export default function View() {
     msg: "",
     open: false
   });
-  const [showBuyTicket, setShowBuyTicket] = useState(false);
-  const [showMetamaskError, setShowMetamaskError] = useState(false);
 
-  const fetchContractData = async () => {
+  const [provider] = useWeb3Modal();
+  const [buyTokenPrice, setBuyTokenPrice] = useState(undefined);
+  const [tokenCount, setTokenCount] = useState(undefined);
+  const [ethBalance, setEthBalance] = useState(undefined);
+  const [tokenBalance, setTokenBalance] = useState(undefined);
+  const [buyToken, setBuyToken] = useState("1");
+  const [reqEth, setReqEth] = useState(undefined);
+  const [reqToken, setReqToken] = useState(undefined);
+
+  const [uniSwap, setUniSwap] = useState(undefined);
+  const [curPrice, setCurPrice] = useState(undefined);
+  const [path, setPath] = useState([]);
+  const [addr, setAddr] = useState(undefined);
+
+    const getAddr = useCallback(async () => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const addr = await signer.getAddress();
+                setAddr(addr);
+            }, 500);
+        }
+    }, [provider]);
+
+    const getUniSwap = useCallback(async () => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const mngFact = new Contract(
+                    addresses.MANAGER_FACTORY,
+                    abis.MANAGER_FACTORY_ABI,
+                    signer
+                );
+                const uniSwap = new Contract(
+                    "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+                    abis.UNI_SWAP_ABI,
+                    signer
+                    );
+                setUniSwap(uniSwap);
+                const managerAddr = profileAddr;
+                const mng = new Contract(managerAddr, abis.MANAGER_ABI, signer);
+                const tokenAddr = await mng.token();
+                const WETH = await mngFact.WETH();
+                const path = [WETH, tokenAddr];
+                setPath(path);
+                const priceList = await uniSwap.getAmountsIn(
+                    ethers.utils.parseEther(buyToken),
+                    path,
+                    { gasLimit: BigNumber.from("900000") }
+                );
+                setCurPrice(priceList[0]);
+            }, 500);
+        }
+    }, [buyToken, profileAddr, provider]);
+
+    const getBuyTokenPrice = useCallback(() => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const mngFact = new Contract(
+                    addresses.MANAGER_FACTORY,
+                    abis.MANAGER_FACTORY_ABI,
+                    signer
+                );
+                const uniSwap = new Contract(
+                    "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+                    abis.UNI_SWAP_ABI,
+                    signer
+                );
+                const managerAddr = profileAddr;
+                const mng = new Contract(managerAddr, abis.MANAGER_ABI, signer);
+                const tokenAddr = await mng.token();
+                const WETH = await mngFact.WETH();
+                const path = [WETH, tokenAddr];
+                const priceList = await uniSwap.getAmountsIn(
+                    ethers.utils.parseEther(buyToken),
+                    path,
+                    { gasLimit: BigNumber.from("900000") }
+                );
+                setBuyTokenPrice(utils.formatEther(priceList[0].toString()).toString());
+            }, 500);
+        }
+    }, [buyToken, profileAddr, provider]);
+
+    const getTokenCount = useCallback(() => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const managerAddr = profileAddr;
+                const mng = new Contract(managerAddr, abis.MANAGER_ABI, signer);
+                const tokenAddr = await mng.token();
+                const token = new Contract(tokenAddr, abis.ERC20, signer);
+                const uniswapRouter = new Contract("0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", abis.UNI_SWAP_ABI, signer);
+                const WETH = await uniswapRouter.WETH();
+                const uniswapFactory = new Contract("0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f", abis.UNISWAP_FACTORY_ABI, signer);
+                const lp = await uniswapFactory.getPair(tokenAddr, WETH);
+                const balance = await token.balanceOf(lp);
+                setTokenCount(utils.formatEther(balance.toString()).toString());
+            }, 500);
+        }
+    }, [profileAddr, provider]);
+
+    const getEthBalance = useCallback(() => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const balance = await signer.getBalance();
+                setEthBalance(utils.formatEther(balance.toString()).toString());
+            }, 500);
+        }
+    }, [provider]);
+
+    const getTokenBalance = useCallback(() => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const addr = await signer.getAddress();
+                const managerAddr = profileAddr;
+                const mng = new Contract(managerAddr, abis.MANAGER_ABI, signer);
+                const tokenAddr = await mng.token();
+                const token = new Contract(tokenAddr, abis.ERC20, signer);
+                const balance = await token.balanceOf(addr);
+                setTokenBalance(utils.formatEther(balance.toString()).toString());
+            }, 500);
+        }
+    }, [profileAddr, provider]);
+
+    const getReqToken = useCallback(() => {
+        if (typeof provider !== "undefined") {
+            setTimeout(async () => {
+                const signer = provider.getSigner();
+                const managerAddr = profileAddr;
+                const mng = new Contract(managerAddr, abis.MANAGER_ABI, signer);
+                const req = await mng.requireAmount();
+                setReqToken(utils.formatEther(req.toString()).toString());
+            }, 500);
+        }
+    }, [profileAddr, provider]);
+
+    useEffect(() => {
+        if(!addr) {
+            getAddr();
+        }
+        if (!uniSwap && addr) {
+            getUniSwap();
+        }
+    }, [uniSwap, getUniSwap, addr, getAddr]);
+  
+  const handleBuy = async () => {
+    setProcessing(true)
     try {
-      if (!loading) setLoading(true);
-
-      let result;
-      if (!contractInstance) {
-        result = await createContractInstance();
-      }
-
-      contractInstance = contractInstance ? contractInstance : result.contract;
-      erc20Instance = erc20Instance ? erc20Instance : result.erc20;
-
-      if (contractInstance) {
-        setShowBuyTicket(false);
-
-        const totalTicket = await contractInstance
-          .methods.ticketNumber().call();
-
-        const ticketPrice = await contractInstance
-          .methods.ticketPrice().call();
-
-        const distInterval = await contractInstance
-          .methods.distInterval().call();
-
-        const distCount = await contractInstance
-          .methods.distCount().call();
-
-        const couponStartTimestamp = await contractInstance
-          .methods.couponStartTime().call();
-
-        const ticketBuyEndTime = await contractInstance
-          .methods.ticketBuyEndTime().call();
-
-        const nextDistStartTime = await contractInstance
-          .methods.getNextDistTimestamp().call();
-
-        const nftBalance = await contractInstance
-          .methods.balanceOf(window.userAddress).call();
-
-        const tokenBaseURI = await contractInstance
-          .methods.baseURI().call();
-
-
-        let couponResult = 0, couponWinnerAddr = "";
-        if (Number(distCount) === Number(totalTicket) - 1 &&
-          time.currentUnixTime() > Number(ticketBuyEndTime)
-        ) {
-          couponResult = await contractInstance
-            .methods.getFinalResult().call();
-
-          couponWinnerAddr = await contractInstance
-            .methods.getCouponWinner().call();
+      const result = await uniSwap.swapETHForExactTokens(
+        ethers.utils.parseEther(buyToken),
+        path,
+        addr,
+        ethers.constants.MaxUint256,
+        {
+            value: curPrice,
+            gasLimit: BigNumber.from("900000"),
         }
+      );
+      console.log('r', result)
 
-        let tickets = [], isWinnerTicket = false;
-        for (let i = 0; i < nftBalance; i++) {
-          const ticketNumber = await contractInstance
-            .methods.tokenOfOwnerByIndex(
-              window.userAddress, i
-            ).call();
+      setProcessing(false)
+      setSuccessModal({
+        open: true,
+        msg: "Buying the Token successful !!",
+      });
+    } catch (e) {
+      console.error(e)
+      setProcessing(false)
 
-          const isValid = await contractInstance
-            .methods.stillValidTicket(
-              ticketNumber
-            ).call();
-
-          tickets.push({ ticketNumber, isValid });
-
-          if (Number(couponResult) === Number(ticketNumber)) {
-            isWinnerTicket = true;
-          }
-        }
-
-        let erc20Balance = await precision.remove(
-          await erc20Instance
-            .methods.balanceOf(window.userAddress).call(),
-          await erc20Instance
-            .methods.decimals().call()
-        );
-
-        console.log('fd', window.userAddress +"/" +erc20Balance)
-
-        setState({
-          totalTicket,
-          ticketPrice,
-          distInterval,
-          distCount,
-          couponStartTimestamp,
-          ticketBuyEndTime,
-          nextDistStartTime,
-          nftBalance,
-          tickets,
-          couponResult,
-          tokenBaseURI,
-          isWinnerTicket,
-          couponWinnerAddr,
-          erc20Balance,
-        });                
-
-        setLoading(false);
-      }
-    } catch (error) {
       setErrorModal({
         open: true,
-        msg: error.message,
-      });
+        msg: e.message
+      })
     }
-  };
-
-  const createContractInstance = () => {
-    return new Promise((resolve, reject) => {
-      try {
-        const contract = new window.web3.eth.Contract(
-          distCouponAbi.default,
-          couponAddress,
-          { from: window.userAddress }
-        );
-
-        const erc20 = new window.web3.eth.Contract(
-          erc20Abi.default,
-          DAI,
-          { from: window.userAddress }
-        );
-
-        console.log('dss', erc20)
-
-        setErc20Instance(erc20);
-        setContractInstance(contract);
-        resolve({ contract, erc20 });
-      } catch (error) {
-        reject(error);
-      }
-    });
-  };
-
-  const handleDist = () => {
-    contractInstance
-      .methods.dist(generateRandom())
-      .send()
-      .on("transactionHash", () => {
-        setProcessing(true);
-      })
-      .on("receipt", () => {
-        setProcessing(false);
-        fetchContractData();
-      })
-      .catch((error) => {
-        setProcessing(false);
-        setErrorModal({
-          open: true,
-          msg: error.message,
-        });
-      });
-  };
-
-  const generateRandom = () => {
-    return Math.floor(Math.random() * 10 ** 15);
-    // should be convert to chainlink
-  };
-
-  const getTokenSymbol = () => {
-    return "DAI";
-  };
+  }
 
   useEffect(() => {
-    if (typeof window.ethereum === 'undefined' ||
-      !window.ethereum.isConnected() ||
-      !window.ethereum.selectedAddress
-    ) {
-      setLoading(false);
-      setShowMetamaskError(true);
-    }
+    setLoading(true);
 
-    if (typeof window.ethereum !== 'undefined' &&
-      window.ethereum.selectedAddress &&
-      window.ethereum.isConnected()
-    ) {
-      fetchContractData();
+    if (!buyTokenPrice) {
+        getBuyTokenPrice();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!tokenCount) {
+        getTokenCount();
+    }
+    if (!ethBalance) {
+        getEthBalance();
+    }
+    if (buyToken.length >= 1 && buyTokenPrice) {
+        const price = utils.parseEther(buyTokenPrice);
+        const p = BigNumber.from(buyToken).mul(price).toString();
+        setReqEth(utils.formatEther(p).toString());
+    }
+    if(!tokenBalance) {
+        getTokenBalance();
+    }
+    if(!reqToken) {
+        getReqToken();
+    }
+    
+    setTimeout(async () => {
+      setLoading(false);
+    }, 3000)
+  }, [buyToken, ethBalance, getEthBalance, getTokenCount, getBuyTokenPrice, tokenCount, buyTokenPrice, tokenBalance, getTokenBalance, reqToken, getReqToken]);
 
   if (loading) {
     routes = <Loading />;
   } else {
     routes = (
-      <div>
-        {showMetamaskError ?
-          <AlertModal
-            open={showMetamaskError}
-            toggle={() => {
-                setShowMetamaskError(false);
-                history.push('/');
-            }}
-          >
-            <div>
-              {typeof window.ethereum === 'undefined' ?
-                <div>
-                  You can't use these features without Metamask.                                
-                </div>
-              :
-                <div>
-                  Please connect to Metamask to use this feature !!
-                </div>
-              }
-            </div>
-          </AlertModal>
-          :
+        <div>
           <CardDeck>
             <Card className="hidden-card"></Card>
 
             <Card className="mx-auto view-pool-card">
               <Card.Body style={{ textAlign: "left", fontWeight: "bold" }}>
                 <p className="view-pool-header">
-                  <u>Distribution Coupon</u>
+                  <u>Buy Ramon Pang's Token - eng</u>
                 </p>
 
                 <Row style={{ paddingBottom: "20px" }}>
                   <Col>
-                    <u>Total Tickets</u>
+                    <u>Total of Tokens</u>
                     <span> :</span>
                     <span className="float-right">
-                      {state.totalTicket}
+                      {tokenCount}
                     </span>
                   </Col>
 
                   <Col>
-                    <u>Ticket Price</u>
+                    <u>Current Price</u>
                     <span> :</span>
                     <span className="float-right">
-                      <span>{state.ticketPrice} </span>
-                      {getTokenSymbol()}
+                      <span>{buyTokenPrice} ETH</span>
                     </span>
                   </Col>
                 </Row>
 
                 <Row style={{ paddingBottom: "20px" }}>
                   <Col>
-                    <u>Distribution</u>
+                    <u>The amount I have</u>
                     <span> :</span>
                     <span className="float-right">
-                      {state.distCount}
+                      {ethBalance} ETH
                     </span>
                   </Col>
 
                   <Col>
-                    <u>NFT Token</u>
+                    <u>Request price</u>
                     <span> :</span>
                     <span className="float-right">
-                      {state.tokenBaseURI !== "" ?
-                        <a
-                          target="_blank"
-                          href={state.tokenBaseURI}
-                          rel="noreferrer noopener">
-                          {nftToken}
-                        </a>
-                        : <div>{nftToken}</div>
-                      }
+                      <span>{reqEth} ETH</span>
                     </span>
                   </Col>
                 </Row>
 
-                {Number(state.nextDistStartTime) > time.currentUnixTime() ?
-                  <Row className="text-center">
-                    <Col>
-                      <u>Next Distribution In</u>
-                      <span> : </span>
-                      <span>
-                        {time.getRemaingTime(state.nextDistStartTime)}
-                      </span>
+                <Row>
+                    <Col className="text-header">
+                        The amount to buy
                     </Col>
-                  </Row>
-                  :
-                  (Number(state.distCount) === Number(state.totalTicket) - 1 &&
-                    Number(state.distCount) > 0 ?
-                    <div>
-                      <div className="auction-alert-message">
-                        Token Already Closed
-                      </div>
-                      <div className="auction-info-message">
-                        Win Number: {state.couponResult}
-                      </div>
-                    </div>
-                    : null
-                  )
-                }
+                    <Col style={{ paddingLeft: "0px" }}>
+                      <Form.Control
+                        className="mb-4"
+                        type="text"
+                        placeholder="Token Symbol"
+                        onChange={(e) => setBuyToken(
+                          e.target.value
+                        )}
+                        style={{ width: "80%" }}
+                        value={buyToken}
+                        required
+                        />
+                    </Col>
+                </Row>
 
-                {time.currentUnixTime() > Number(state.nextDistStartTime) &&
-                    Number(state.distCount) < Number(state.totalTicket) - 1 ?
-                    <Row className="text-center">
-                      <Col>
-                        <Button variant="info" onClick={handleDist}>
-                          {processing ?
-                            <div className="d-flex align-items-center">
-                              Processing
-                              <span className="loading ml-2"></span>
-                            </div>
-                            :
-                            <div>Execute Distribution</div>
-                          }
-                        </Button>
-
-                        <div className="info-message">
-                          You will get {Number(state.ticketPrice) / 100} {getTokenSymbol()}
-                          <span> for executing this distribution.</span>
+                <Row className="text-center">
+                  <Col>
+                    <Button variant="info" onClick={handleBuy}>
+                      {processing ?
+                        <div className="d-flex align-items-center">
+                          Processing
+                          <span className="loading ml-2"></span>
                         </div>
-                      </Col>
-                    </Row>
-                    : null
-                }
-
-                {state.nftBalance > 0 ?
-                  <DisplayTickets
-                    nftBalance={state.nftBalance}
-                    tickets={state.tickets}
-                  />
-                  : null
-                }
-
-                {showBuyTicket ?
-                  <BuyTicket
-                    couponAddress={couponAddress}
-                    contractInstance={contractInstance}
-                    erc20Instance={erc20Instance}
-                    buyToken={"DAI"}
-                    availableBalance={state.erc20Balance}
-                    balanceNeeded={state.ticketPrice}
-                    callback={fetchContractData}
-                  />
-                  : null
-                }
-
-                {Number(state.isWinnerTicket) !== 0 ?
-                  <Claim
-                    couponAddress={couponAddress}
-                    contractInstance={contractInstance}
-                    ticketNumber={state.couponResult}
-                    callback={fetchContractData}
-                  />
-                 :
-                  (Number(state.distCount) === Number(state.totalTicket) - 1 &&
-                    Number(state.distCount) > 0 && Number(state.nftBalance) > 0 ?
-                    (state.couponWinnerAddr === window.userAddress ?
-                        <div className="info-message">                                                
-                          You have already claimed your coupon
-                            for ticket number {state.couponResult}
-                        </div>
-                      : null
-                    ) : (Number(state.nftBalance) > 0 && Number(state.distCount) > 0
-                        && Number(state.distCount) === Number(state.totalTicket) - 1 ?
-                        <div className="info-message">
-                          You don't have winner ticket.
-                        </div>
-                      : null
-                    )
-                  )
-                }
-            </Card.Body>
-
-            {time.currentUnixTime() < Number(state.ticketBuyEndTime) ?
-              <Card.Footer className="view-pool-footer">
-                <Button
-                  onClick={() => setShowBuyTicket(true)}
-                  variant="success"
-                >
-                  {state.nftBalance > 0 ?
-                    <div>Buy More Ticket</div>
-                    :
-                    <div>Want to Buy Ticket ?</div>
-                  }
-                </Button>
-              </Card.Footer>
-            :
-              (Number(state.nftBalance) === 0 ?
-                <div className="alert-message">
-                  Participation time over.
-                </div>
-                : <div style={{ marginBottom: "20px" }}></div>
-              )
-            }
+                      :
+                        <div>Buy</div>
+                      }
+                    </Button>
+                  </Col>
+                </Row>
+              </Card.Body>
             </Card>
 
             <Card className="hidden-card"></Card>
           </CardDeck>
-        }
 
         <AlertModal
           open={errorModal.open}
@@ -454,6 +341,7 @@ export default function View() {
           toggle={() => setSuccessModal({
             ...successModal, open: false
           })}
+          onConfirm={() => history.push("/")}
         >
           {successModal.msg}
         </SuccessModal>
